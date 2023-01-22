@@ -1,75 +1,66 @@
-mod lib; // lib.rs is a crate file. crate: compilation unit
+use anyhow::{Context, Result};
+use financial_analysis::financial_analysis::StockAnalyzer;
+use financial_analysis::stock_data_fetching::StockInfo;
+use std::env;
+use std::sync::Arc;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
-// mod or module is similar to namespaces: logically groups code within a crate
-// use: brings a rust item into the current scope. Similar to Using in C++ or import .. as x in python
+async fn save_stocks_to_file(stocks: Vec<StockInfo>, filename: &str) -> Result<()> {
+    let mut file = File::create(filename).await?;
 
-use lib::test;
-use lib::test::Print;
-
-struct HHH {
-    nnn: String,
-}
-
-impl test::Print for HHH {
-    fn new(name: String) -> Self {
-        return HHH {
-            nnn: String::from("hello"),
-        };
+    for stock in stocks {
+        let symbol_str = stock.symbol.as_bytes();
+        file.write_all(symbol_str).await?;
     }
-
-    fn print(&self) {}
-
-    fn print2(&self) {}
+    Ok(())
 }
 
-fn main() {
-    let state_code = "MH";
-    let state = match state_code {
-        "MH" => {
-            println!("Found match for MH");
-            "Maharashtra"
-        }
-        "KL" => "Kerala",
-        "KA" => "Karnadaka",
-        "GA" => "Goa",
-        _ => "Unknown",
-    };
-    println!("state = {}", state);
+#[tokio::main]
+async fn main() -> Result<()> {
+    let settings_filename = env::args()
+        .nth(1)
+        .context("Usage: cargo run <settings_file_path>")?;
 
-    let na = test::NewsArticle::new(String::from("NYT"));
+    let mut stock_analyzer = StockAnalyzer::new(&settings_filename);
+    let exchange = "US".to_string();
 
-    let hhh: HHH = HHH {
-        nnn: String::from("hhh"),
-    };
-    hhh.print();
-    println!("{:?}", na);
+    let stock_list = stock_analyzer.get_exchange_stock_list(&exchange).await?;
+    println!("Stocks on exchange {}: {}", exchange, stock_list.len());
+    
+    let analyzer = Arc::new(Mutex::new(stock_analyzer));
 
-    na.print();
-    na.print2();
-    println!("NAME = {}", na.sucks);
+    let results: Vec<_> = futures::future::join_all(stock_list.into_iter().map(|stock| {
+        let analyzer = Arc::clone(&analyzer);
+        tokio::spawn(async move {
+            let mut analyzer = analyzer.lock().await;
+            match analyzer.check_stock(&stock).await {
+                Ok(is_good) => Ok((stock, is_good)),
+                Err(e) => {
+                    println!("Error checking stock {}: {}", stock.symbol, e);
+                    Err(stock)
+                }
+            }
+        })
+    })).await;
 
-    print((20, false, 100.6234));
-
-    // Stack allocated array
-    let mut xs: [i64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    xs[0] = 12;
-
-    let ea: [f64; 0] = [];
-    assert_eq!(&ea, &[]);
-    assert_eq!(&ea, &[][..]);
-
-    for i in 0..xs.len() + 1 {
-        match xs.get(i) {
-            Some(xval) => println!("{}: {}", i, xval),
-            None => println!("Slow down! {} is too far!", i),
+    let mut worthy_stocks = Vec::new();
+    let mut shitty_stocks = Vec::new();
+    
+    for result in results {
+        match result {
+            Ok(Ok((stock, true))) => worthy_stocks.push(stock),
+            Ok(Ok((stock, false))) => shitty_stocks.push(stock),
+            Ok(Err(stock)) => shitty_stocks.push(stock),
+            Err(e) => eprintln!("Stock analysis error: {}", e),
         }
     }
-}
 
-fn print(tup: (i32, bool, f64)) -> String {
-    println!("Inside print method!");
-    let (age, is_male, cgpa) = tup;
-    println!("Age is {}, isMale? {}, cpga = {}", age, is_male, cgpa);
-    let out = tup.0.to_string();
-    return out;
+    save_stocks_to_file(shitty_stocks.clone(), "shitty_stocks.txt").await?;
+
+    println!("Worthy stocks: {worthy_stocks:?}");
+
+    Ok(())
+
 }

@@ -1,0 +1,27 @@
+{
+    "data_fetching": {
+        "finnhub_api_key": "insert api key here",
+        "max_api_calls_per_minute": 30,
+        "considered_exchanges": [
+            "US"
+        ]
+    },
+    "analysis": {
+        "pe_limits": [
+            2.0,
+            22.5
+        ],
+        "pb_limits": [
+            0.4,
+            5.0
+        ],
+        "earnings_growth_5y_min": 6.0,
+        "dividend_per_share_min": 0.1,
+        "dividend_growth_5y_min": 5.0,
+        "current_ratio_min": 1.5,
+        "debt_equity_max": 2.0,
+        "market_cap_min": 20e3,
+        "nor_aaa_10y_bond_yield": 0.0295,
+        "us_aaa_10y_bond_yield": 0.0336
+    }
+}
